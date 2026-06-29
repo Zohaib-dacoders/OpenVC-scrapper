@@ -201,7 +201,12 @@ def parse_detail_page(html: str, slug: str) -> dict:
     # About sections — "Who we are", "Funding Requirements", "Value add"
     result.update(_parse_about_sections(tree))
 
-    # HQ location — split into city + country
+    # HQ location — keep the RAW full address (gap #1) AND the split city/country
+    loc_node = tree.css_first(".locations .place-name")
+    if loc_node:
+        raw_addr = loc_node.text(strip=True).replace(" HQ", "").replace("HQ", "").strip()
+        if raw_addr:
+            result["HQAddress"] = raw_addr
     city, country = _parse_hq_location(tree)
     if city:
         result["HQCity"] = city
@@ -280,12 +285,43 @@ def parse_detail_team(html: str, slug: str) -> list[dict]:
                 "AirtableId": airtable_id,
                 "Name": name,
                 "Picture": picture_url,
-                "Role": role,
+                "Role": _normalize_role(role),   # mapped to the 11 fixed values (gap #12)
+                "RoleRaw": role,                 # original title, kept so nothing is lost
                 "Tagline": tagline,
                 "LinkedInUrl": linkedin_url,
                 "ProfileSlug": profile_slug,
             })
     return members
+
+
+# OpenVC's 11 canonical team-member roles. Raw profile titles ("General Partner",
+# "Sr. Associate", "Managing Director", "Head of Platform"…) are mapped onto these
+# so the client's taxonomy is honoured; the original is preserved in RoleRaw.
+def _normalize_role(raw: str) -> str:
+    if not raw:
+        return ""
+    s = raw.strip().lower()
+    if "scout" in s:
+        return "Scout"
+    if "principal" in s:
+        return "Principal"
+    if "analyst" in s:
+        return "Analyst"
+    if re.search(r"\b(sr|senior)\b.*associate", s):
+        return "Sr Associate"
+    if "associate" in s:
+        return "Associate"
+    if re.search(r"\b(vp|vice[\s-]?president)\b", s):
+        return "VP"
+    if re.search(r"(general partner|managing partner|managing director|founding partner|founder|\bgp\b|\bmd\b|\bceo\b)", s):
+        return "GP/MD"
+    if "partner" in s:
+        return "Partner"
+    if re.search(r"(portfolio|platform)", s):
+        return "Portfolio Success"
+    if re.search(r"(investor relations|\bir\b|operation|\bops\b|admin|chief of staff|\bcfo\b|\bcoo\b|finance|legal|counsel)", s):
+        return "Admin (IR, Ops...)"
+    return "Other"
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
@@ -478,7 +514,10 @@ def _parse_portfolio(tree: HTMLParser) -> list[dict]:
             continue
         name = name_el.text(strip=True)
         url_el = item.css_first("p.ire-opacity-60 a")
-        url = url_el.attributes.get("href", "") if url_el else ""
+        url = url_el.attributes.get("href", "").strip() if url_el else ""
+        # gap #6 — drop placeholder/broken hrefs ("#", "javascript:void(0)", bare anchors)
+        if url in ("#", "") or url.lower().startswith(("javascript:", "#")):
+            url = ""
         if name:
             portfolio.append({"name": name, "url": url})
     return portfolio

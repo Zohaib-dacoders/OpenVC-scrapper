@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS investors (
     investor_subtype TEXT,
 
     -- Location
+    address          TEXT,
     city             TEXT,
     country          TEXT,
 
@@ -68,6 +69,8 @@ CREATE TABLE IF NOT EXISTS investors (
 -- it TRUE once a fund's /fund/{slug} HTML is cached to disk, and the detail-
 -- pending query is `generated=FALSE AND detail_fetched=FALSE`.
 ALTER TABLE investors ADD COLUMN IF NOT EXISTS detail_fetched BOOLEAN NOT NULL DEFAULT FALSE;
+-- gap #1: keep the raw full HQ address string, not just the parsed city/country.
+ALTER TABLE investors ADD COLUMN IF NOT EXISTS address TEXT;
 
 -- GIN indexes for array containment queries:
 --   SELECT * FROM investors WHERE 'USA' = ANY(countries_of_investment);
@@ -87,13 +90,16 @@ CREATE TABLE IF NOT EXISTS investor_team (
     airtable_id  TEXT,
     name         TEXT NOT NULL,
     picture      TEXT,
-    role         TEXT,
+    role         TEXT,          -- normalised to OpenVC's 11 canonical roles (gap #12)
+    role_raw     TEXT,          -- original profile title, preserved
     description  TEXT,
     linkedin_url TEXT,
     profile_slug TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_team_investor_url
     ON investor_team (investor_url);
+-- gap #12: original role title kept alongside the normalised value.
+ALTER TABLE investor_team ADD COLUMN IF NOT EXISTS role_raw TEXT;
 
 
 CREATE TABLE IF NOT EXISTS investor_portfolio (

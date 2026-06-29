@@ -162,7 +162,7 @@ class PostgresDB:
         _SKIP = {"team", "portfolio", "id"}
         _INVESTOR_COLS = [
             "url", "full_name", "picture", "investor_type", "investor_subtype",
-            "city", "country", "currency", "investment_min", "investment_max",
+            "address", "city", "country", "currency", "investment_min", "investment_max",
             "average_check", "aum", "stages", "sectors", "countries_of_investment",
             "featured_lists", "description", "value_add", "investment_thesis",
             "company_stage_focus", "company", "company_role", "company_url",
@@ -215,9 +215,9 @@ class PostgresDB:
                         cur,
                         """
                         INSERT INTO investor_team
-                            (investor_url, airtable_id, name, picture, role, description, linkedin_url, profile_slug)
+                            (investor_url, airtable_id, name, picture, role, role_raw, description, linkedin_url, profile_slug)
                         VALUES (%(investor_url)s, %(airtable_id)s, %(name)s, %(picture)s,
-                                %(role)s, %(description)s, %(linkedin_url)s, %(profile_slug)s)
+                                %(role)s, %(role_raw)s, %(description)s, %(linkedin_url)s, %(profile_slug)s)
                         """,
                         deduped,
                     )
