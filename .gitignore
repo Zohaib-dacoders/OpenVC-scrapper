@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+.pytest_cache/
+.env
+.cf-cookies*.json
+tests/samples/
+html-cache/
+.venv_old_almabak/
+.claude/

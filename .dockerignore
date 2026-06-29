@@ -1,0 +1,14 @@
+.venv/
+**/.venv*/
+.venv_old_almabak/
+**/__pycache__/
+**/*.pyc
+.env
+.env.*
+*.bak*
+.cf-cookies*.json
+html-cache/
+tests/
+tests/samples/
+.git/
+*.log

@@ -1,0 +1,38 @@
+# Coolify deployment — OpenVC scraper as its OWN resource, scheduled nightly.
+#
+# One light container runs the full Postgres pipeline on start (list -> detail ->
+# formate), then once every 24h. The detail phase's `detail_fetched` flag and the
+# formate phase's `generated` flag mean a re-run only re-fetches investors that
+# are new / not yet processed, so repeated runs are cheap.
+#
+# It joins the `coolify` network to reach BOTH the Postgres (yv1n67…) and the
+# FlareSolverr/byparr container by name. No Chrome baked in. Detail-phase
+# residential proxies come from a mounted host file. Postgres-only, no NocoDB.
+
+services:
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openvc-scraper:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Proxy pool mounted from a host file (kept OFF this repo). One
+    # `http://user:pass@ip:port` per line. The scraper reads /app/proxies.txt.
+    volumes:
+      - /root/proxies.txt:/app/proxies.txt:ro
+    networks:
+      - coolify
+    # full pipeline now, then nightly. Logs to stdout (Coolify captures them).
+    command: >
+      sh -c 'while true; do
+        echo "=== openvc scrape start $(date -u +%FT%TZ) ===";
+        python -m src.scraper all-pg || echo "scrape exited $?";
+        echo "=== sleeping 24h ===";
+        sleep 86400;
+      done'
+
+networks:
+  coolify:
+    external: true
