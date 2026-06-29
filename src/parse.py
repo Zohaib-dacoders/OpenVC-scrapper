@@ -165,12 +165,15 @@ def parse_detail_page(html: str, slug: str) -> dict:
         if themes:
             result["Themes"] = ", ".join(themes)
 
-    # Funding Stages — comma-separated string
+    # Funding Stages — comma-separated string. OpenVC numbers them ("1. Idea or
+    # Patent", "2. Prototype"…); strip the "N. " prefix so the stored values are
+    # the clean canonical labels.
     stages = [
-        a.text(strip=True)
+        re.sub(r'^\s*\d+\.\s*', '', a.text(strip=True))
         for a in tree.css(".stages .stage-item")
         if a.text(strip=True)
     ]
+    stages = [s for s in stages if s]
     if stages:
         result["FundingStages"] = ", ".join(stages)
 
@@ -471,6 +474,16 @@ def _parse_hq_location(tree: HTMLParser) -> tuple[str, str]:
     # Final cleanup: bare 2-letter state code is not a city name
     if re.match(r'^[A-Z]{2}$', city):
         city = ""
+
+    # Strip a trailing province/state code left on the city ("Torino TO" -> "Torino")
+    m = re.match(r'^(.*\S)\s+[A-Z]{2}$', city)
+    if m:
+        city = m.group(1).strip()
+
+    # The OpenVC page has no separate country element — only this raw address — so
+    # derive USA when it ends in the unmistakable US "<STATE> <ZIP>" form.
+    if not country and re.search(r'\b[A-Z]{2}\s+\d{5}(-\d{4})?$', addr):
+        country = "USA"
 
     return city, country
 
