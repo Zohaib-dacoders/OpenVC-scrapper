@@ -929,6 +929,7 @@ def run_formate_phase_pg(pg, limit: int = 0) -> None:
             p = parsed
             inv_updates.append({
                 "url":            url,
+                "full_name":      p.get("Company"),
                 "picture":        p.get("LogoUrl"),
                 "stages":         [s.strip() for s in p["FundingStages"].split(",") if s.strip()] if p.get("FundingStages") else None,
                 "sectors":        [s.strip() for s in p["Themes"].split(",") if s.strip()] if p.get("Themes") else None,
