@@ -137,9 +137,11 @@ CREATE TABLE IF NOT EXISTS page_cache (
     fetched_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Customer-facing view: each investor + its team & portfolio (nested JSON),
--- with website-style column titles. One row per fund.
-CREATE OR REPLACE VIEW investor_overview AS
+-- Customer-facing view: each investor + its team & portfolio, with website-style
+-- column titles. Team/Portfolio come as READABLE text (one entry per line) plus a
+-- structured JSON column. One row per fund.  (DROP first: column types changed.)
+DROP VIEW IF EXISTS investor_overview;
+CREATE VIEW investor_overview AS
 SELECT
   i.url AS "URL", i.company AS "Company", i.investor_type AS "Investor Type",
   i.investor_subtype AS "Investor Subtype", i.city AS "City", i.country AS "Country",
@@ -155,15 +157,21 @@ SELECT
   i.lead AS "Lead", i.lead_investor AS "Lead Investor", i.picture AS "Picture URL",
   array_to_string(i.stages, ', ') AS "Stages", array_to_string(i.sectors, ', ') AS "Sectors",
   array_to_string(i.countries_of_investment, ', ') AS "Countries Invested",
-  COALESCE(t.cnt, 0) AS "Team Count", t.team AS "Team",
-  COALESCE(p.cnt, 0) AS "Portfolio Count", p.portfolio AS "Portfolio"
+  COALESCE(t.cnt, 0) AS "Team Count", t.team_text AS "Team", t.team_json AS "Team (JSON)",
+  COALESCE(p.cnt, 0) AS "Portfolio Count", p.portfolio_text AS "Portfolio", p.portfolio_json AS "Portfolio (JSON)"
 FROM investors i
-LEFT JOIN (SELECT investor_url, count(*) cnt,
-  json_agg(json_build_object('Name', name, 'Role', role, 'Personal Thesis', description,
-    'LinkedIn', linkedin_url, 'Profile', profile_slug, 'Picture', picture) ORDER BY id) team
+LEFT JOIN (
+  SELECT investor_url, count(*) cnt,
+    string_agg(name || COALESCE(' ('||NULLIF(role,'')||')','')
+      || COALESCE(' — '||NULLIF(btrim(description, '“”" '),''),'')
+      || COALESCE('  '||NULLIF(linkedin_url,''),''), E'\n' ORDER BY id) AS team_text,
+    json_agg(json_build_object('Name',name,'Role',role,'Personal Thesis',description,
+      'LinkedIn',linkedin_url,'Profile',profile_slug,'Picture',picture) ORDER BY id) AS team_json
   FROM investor_team GROUP BY investor_url) t ON t.investor_url = i.url
-LEFT JOIN (SELECT investor_url, count(*) cnt,
-  json_agg(json_build_object('Company', company_name, 'Website', company_url) ORDER BY id) portfolio
+LEFT JOIN (
+  SELECT investor_url, count(*) cnt,
+    string_agg(company_name || COALESCE(' — '||NULLIF(company_url,''),''), E'\n' ORDER BY id) AS portfolio_text,
+    json_agg(json_build_object('Company',company_name,'Website',company_url) ORDER BY id) AS portfolio_json
   FROM investor_portfolio GROUP BY investor_url) p ON p.investor_url = i.url;
 """
 
