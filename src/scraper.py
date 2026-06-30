@@ -942,6 +942,9 @@ def run_formate_phase_pg(pg, limit: int = 0) -> None:
                 "country":        p.get("HQCountry"),
                 "linkedin":       p.get("LinkedInUrl"),
                 "investor_subtype": p.get("InvestorSubtype"),
+                "company":        p.get("Company"),
+                "currency":       "USD",   # OpenVC normalizes all amounts to USD
+                "investor_type":  ("Angel" if "angel" in (p.get("InvestorSubtype") or "").lower() else "VC") if p.get("InvestorSubtype") else None,
                 "generated":      True,
                 "scrape_date":    now,
             })

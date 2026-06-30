@@ -141,6 +141,11 @@ def parse_detail_page(html: str, slug: str) -> dict:
     tree = HTMLParser(html)
     result: dict = {"Slug": slug, "DetailScraped": True}
 
+    # Fund name (client's "Company" field) — the page <h1> is just the fund name.
+    h1 = tree.css_first("h1")
+    if h1 and h1.text(strip=True):
+        result["Company"] = h1.text(strip=True)
+
     # AirtableId + LogoUrl from profile logo img
     logo = tree.css_first(".logo img, .investor-logo img")
     if logo:
