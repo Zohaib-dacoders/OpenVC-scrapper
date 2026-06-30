@@ -33,11 +33,11 @@ CREATE TABLE IF NOT EXISTS investors (
     countries_of_investment  TEXT[],
     featured_lists           TEXT[],
 
-    -- About
-    description          TEXT,
-    value_add            TEXT,
-    investment_thesis    TEXT,
-    company_stage_focus  TEXT,
+    -- About  (column names match the OpenVC page section labels)
+    description          TEXT,   -- "Who we are"
+    value_add            TEXT,   -- "Value add"
+    investment_thesis    TEXT,   -- personal thesis (first team member tagline)
+    funding_requirements TEXT,   -- "Funding Requirements" (was: company_stage_focus)
 
     -- Contact / social
     company      TEXT,
@@ -50,12 +50,16 @@ CREATE TABLE IF NOT EXISTS investors (
     crunchbase   TEXT,
     angellist    TEXT,
 
+    -- Location (extra)
+    branch_offices TEXT[],   -- non-HQ offices ("Munich, Germany", "Switzerland"…)
+
     -- Stats
     connections    INTEGER,
     popular        BOOLEAN,
     reply_rate     TEXT,
     response_time  TEXT,
-    lead_investor  TEXT,
+    lead_investor  TEXT,      -- Yes / No (derived)
+    lead           TEXT,      -- exact OpenVC value: Always / Sometimes / Never / N/A
 
     -- Scrape metadata
     generated      BOOLEAN NOT NULL DEFAULT FALSE,
@@ -69,6 +73,16 @@ CREATE TABLE IF NOT EXISTS investors (
 -- it TRUE once a fund's /fund/{slug} HTML is cached to disk, and the detail-
 -- pending query is `generated=FALSE AND detail_fetched=FALSE`.
 ALTER TABLE investors ADD COLUMN IF NOT EXISTS detail_fetched BOOLEAN NOT NULL DEFAULT FALSE;
+-- 2026-06-30: clearer tagging + missing fields (idempotent — runs every startup).
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name='investors' AND column_name='company_stage_focus') THEN
+    ALTER TABLE investors RENAME COLUMN company_stage_focus TO funding_requirements;
+  END IF;
+END $$;
+ALTER TABLE investors ADD COLUMN IF NOT EXISTS funding_requirements TEXT;
+ALTER TABLE investors ADD COLUMN IF NOT EXISTS branch_offices TEXT[];
+ALTER TABLE investors ADD COLUMN IF NOT EXISTS lead TEXT;
 -- gap #1: keep the raw full HQ address string, not just the parsed city/country.
 ALTER TABLE investors ADD COLUMN IF NOT EXISTS address TEXT;
 

@@ -201,7 +201,12 @@ def parse_detail_page(html: str, slug: str) -> dict:
     result.update(_parse_check_block(tree))
 
     # IsLead — "Lead" field in the overview row ("N/A" → False, "Yes" → True)
-    result["IsLead"] = _parse_is_lead(tree)
+    # Lead — capture the EXACT value OpenVC shows ("Always"/"Sometimes"/"Never"/"N/A")
+    lead_val = _parse_lead_value(tree)
+    if lead_val:
+        result["LeadValue"] = lead_val
+    result["IsLead"] = (lead_val.strip().lower() in ("always", "sometimes")
+                        if lead_val else _parse_is_lead(tree))
 
     # Reply rate + Responds in
     result.update(_parse_stats_block(tree))
@@ -209,17 +214,18 @@ def parse_detail_page(html: str, slug: str) -> dict:
     # About sections — "Who we are", "Funding Requirements", "Value add"
     result.update(_parse_about_sections(tree))
 
-    # HQ location — keep the RAW full address (gap #1) AND the split city/country
-    loc_node = tree.css_first(".locations .place-name")
-    if loc_node:
-        raw_addr = loc_node.text(strip=True).replace(" HQ", "").replace("HQ", "").strip()
-        if raw_addr:
-            result["HQAddress"] = raw_addr
-    city, country = _parse_hq_location(tree)
-    if city:
-        result["HQCity"] = city
-    if country:
-        result["HQCountry"] = country
+    # Locations — HQ full address + parsed city/country, PLUS branch offices.
+    # OpenVC lists the HQ (with an "HQ" badge) and any number of other offices.
+    locs = _parse_locations(tree)
+    if locs["hq"]:
+        result["HQAddress"] = locs["hq"]
+        city, country = _split_city_country(locs["hq"])
+        if city:
+            result["HQCity"] = city
+        if country:
+            result["HQCountry"] = country
+    if locs["branches"]:
+        result["BranchOffices"] = locs["branches"]   # list of non-HQ office strings
 
     # Fund-level LinkedIn URL (first button[village-data-url] that is LinkedIn)
     for btn in tree.css("button[village-data-url]"):
@@ -375,6 +381,158 @@ def _parse_is_lead(tree: HTMLParser) -> bool:
             if val:
                 return val.text(strip=True).lower() not in ("n/a", "", "no", "-")
     return False
+
+
+def _parse_lead_value(tree: HTMLParser) -> str:
+    """Exact 'Lead' value as displayed: Always / Sometimes / Never / N/A."""
+    for col in tree.css(".type .col-md-4, .type .col-4"):
+        sub = col.css_first(".about-sub-title")
+        if sub and sub.text(strip=True).lower() == "lead":
+            val = col.css_first("p.ire-text-black-full") or col.css_first(".ire-text-black-full")
+            if val:
+                return val.text(strip=True)
+    return ""
+
+
+def _parse_locations(tree: HTMLParser) -> dict:
+    """Return {'hq': <full address str>, 'branches': [<other office strs>]}.
+
+    OpenVC marks the head office with an 'HQ' badge inside its .place-name; any
+    other .place-name rows are branch offices.
+    """
+    out = {"hq": "", "branches": []}
+    block = tree.css_first(".locations")
+    if not block:
+        return out
+    for pn in block.css(".place-name"):
+        is_hq = "HQ" in (pn.html or "")
+        txt = re.sub(r"\s*HQ\s*$", "", pn.text(strip=True)).strip()
+        if not txt:
+            continue
+        if is_hq and not out["hq"]:
+            out["hq"] = txt
+        else:
+            out["branches"].append(txt)
+    if not out["hq"] and out["branches"]:        # no explicit HQ → first is HQ
+        out["hq"] = out["branches"].pop(0)
+    return out
+
+
+# Country normalisation — ISO-2 codes and common aliases → full names.
+_ISO2_COUNTRY = {
+    "us": "United States", "gb": "United Kingdom", "uk": "United Kingdom",
+    "de": "Germany", "fr": "France", "ch": "Switzerland", "nl": "Netherlands",
+    "es": "Spain", "it": "Italy", "se": "Sweden", "ca": "Canada", "ie": "Ireland",
+    "be": "Belgium", "at": "Austria", "dk": "Denmark", "fi": "Finland", "no": "Norway",
+    "pl": "Poland", "pt": "Portugal", "cz": "Czech Republic", "in": "India",
+    "sg": "Singapore", "il": "Israel", "ae": "United Arab Emirates", "jp": "Japan",
+    "cn": "China", "hk": "Hong Kong", "au": "Australia", "nz": "New Zealand",
+    "br": "Brazil", "mx": "Mexico", "za": "South Africa", "ng": "Nigeria",
+    "ke": "Kenya", "lu": "Luxembourg", "ee": "Estonia", "lt": "Lithuania",
+    "lv": "Latvia", "gr": "Greece", "ro": "Romania", "bg": "Bulgaria", "hr": "Croatia",
+    "si": "Slovenia", "sk": "Slovakia", "hu": "Hungary", "ua": "Ukraine", "tr": "Turkey",
+}
+_COUNTRY_ALIASES = {
+    "usa": "United States", "u.s.a.": "United States", "u.s.": "United States",
+    "united states": "United States", "united states of america": "United States",
+    "u.k.": "United Kingdom", "united kingdom": "United Kingdom", "england": "United Kingdom",
+    "scotland": "United Kingdom", "great britain": "United Kingdom",
+    "deutschland": "Germany", "uae": "United Arab Emirates",
+}
+# Full country names we accept verbatim (lowercased) — guards against treating a
+# trailing state/region as a country.
+_COUNTRY_NAMES = set(_COUNTRY_ALIASES.values()) | set(_ISO2_COUNTRY.values()) | {
+    "Germany", "France", "Switzerland", "Netherlands", "Spain", "Italy", "Sweden",
+    "Canada", "Ireland", "Belgium", "Austria", "Denmark", "Finland", "Norway",
+    "Poland", "Portugal", "Singapore", "Israel", "Japan", "China", "Australia",
+    "Brazil", "Mexico", "India", "Luxembourg", "Estonia", "Greece", "Romania",
+    "Hungary", "Ukraine", "Turkey", "Czech Republic", "Hong Kong", "New Zealand",
+}
+_COUNTRY_NAMES_LC = {c.lower() for c in _COUNTRY_NAMES}
+
+_US_STATES = {
+    "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
+    "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho", "illinois",
+    "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine", "maryland",
+    "massachusetts", "michigan", "minnesota", "mississippi", "missouri", "montana",
+    "nebraska", "nevada", "new hampshire", "new jersey", "new mexico", "new york",
+    "north carolina", "north dakota", "ohio", "oklahoma", "oregon", "pennsylvania",
+    "rhode island", "south carolina", "south dakota", "tennessee", "texas", "utah",
+    "vermont", "virginia", "washington", "west virginia", "wisconsin", "wyoming",
+}
+
+
+def _norm_country(seg: str) -> str:
+    k = seg.strip().lower().strip(".")
+    if k in _COUNTRY_ALIASES:
+        return _COUNTRY_ALIASES[k]
+    if len(k) == 2 and k in _ISO2_COUNTRY:
+        return _ISO2_COUNTRY[k]
+    if seg.strip().lower() in _COUNTRY_NAMES_LC:
+        return next(c for c in _COUNTRY_NAMES if c.lower() == seg.strip().lower())
+    return ""
+
+
+def _is_postcode(seg: str) -> bool:
+    s = seg.strip().upper()
+    if re.fullmatch(r"\d{4,6}", s):
+        return True
+    # UK-style "TW20 0DF", "W1J 6PA" etc.
+    return bool(re.fullmatch(r"[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}", s))
+
+
+def _split_city_country(addr: str) -> tuple[str, str]:
+    """Best-effort (city, full-country) from a free-form OpenVC address string.
+
+    Handles the real shapes seen on OpenVC:
+      "Magdalene-Schoch-Str. 5, 97074 Würzburg, Bayern, DE"  -> Würzburg / Germany
+      "West Hollywood, California, United States"            -> West Hollywood / United States
+      "...West Palm Beach, Florida, Florida, US"             -> West Palm Beach / United States
+      "USA"                                                  -> "" / United States
+    """
+    parts = [p.strip() for p in addr.split(",") if p.strip()]
+    if not parts:
+        return "", ""
+    country = ""
+    if _norm_country(parts[-1]):
+        country = _norm_country(parts[-1])
+        parts = parts[:-1]
+    city = ""
+    # Strong signal: a "<ZIP> CityName" segment anywhere → city is the words part.
+    for p in parts:
+        m = re.match(r"^\d{3,}\s+([A-Za-zÀ-ÿ][\w .'\-]+)$", p)
+        if m and m.group(1).strip().lower() not in _US_STATES:
+            city = m.group(1).strip()
+            break
+    if not city:
+        rem = parts[:]
+        # Drop trailing US states and bare postcodes (Florida, Florida, TW20 0DF…).
+        while rem and (rem[-1].lower() in _US_STATES or _is_postcode(rem[-1])):
+            rem.pop()
+        if rem:
+            cand = rem[-1]
+            cand = re.sub(r"^\d{3,}\s+", "", cand)          # "12345 City" → "City"
+            cand = re.sub(r"\s+\d{3,}[\w ]*$", "", cand)     # "City 12345" → "City"
+            # If the last segment is a long street line, step back one.
+            if re.match(r"^\d+\s", cand) and len(rem) > 1:
+                cand = rem[-2]
+            city = cand.strip()
+    city = re.sub(r"\s+[A-Z]{2}$", "", city).strip()         # drop trailing "TO"/state code
+
+    # UK-postcode rescue for comma-less addresses
+    # ("IW Capital Limited 42 Bruton Place London W1J 6PA" → London / United Kingdom).
+    ukpc = re.search(r"\b([A-Z][a-zA-Z.'\-]+)\s+[A-Z]{1,2}\d[A-Z\d]?\s+\d[A-Z]{2}\b", addr)
+    if ukpc:
+        if not country:
+            country = "United Kingdom"
+        if (not city) or len(city) > 30 or re.search(r"\d", city) \
+           or any(w in city.lower() for w in ("limited", "ltd", "llp", "inc", "llc")):
+            city = ukpc.group(1)
+
+    # Final junk guard: a "city" that's really a company/street line, not a city.
+    if len(city) > 35 or re.search(r"\d", city):
+        city = ""
+    return city, country
 
 
 def _parse_about_sections(tree: HTMLParser) -> dict:

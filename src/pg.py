@@ -165,9 +165,9 @@ class PostgresDB:
             "address", "city", "country", "currency", "investment_min", "investment_max",
             "average_check", "aum", "stages", "sectors", "countries_of_investment",
             "featured_lists", "description", "value_add", "investment_thesis",
-            "company_stage_focus", "company", "company_role", "company_url",
+            "funding_requirements", "branch_offices", "company", "company_role", "company_url",
             "website", "linkedin", "twitter", "facebook", "crunchbase", "angellist",
-            "connections", "popular", "reply_rate", "response_time", "lead_investor",
+            "connections", "popular", "reply_rate", "response_time", "lead_investor", "lead",
             "generated", "scrape_date",
         ]
 
