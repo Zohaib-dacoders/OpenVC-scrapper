@@ -916,6 +916,11 @@ def run_formate_phase_pg(pg, limit: int = 0) -> None:
         url = f"{BASE_URL}/fund/{_urlencode(slug, safe='')}"
 
         if status in ("fetched", "cached"):
+            # Persist raw HTML so we can re-parse later without re-scraping.
+            try:
+                pg.save_page_html(url, html)
+            except Exception:                              # noqa: BLE001
+                pass
             parsed   = parse_detail_page(html, slug)
             team_members = parse_detail_team(html, slug)
 

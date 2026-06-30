@@ -128,6 +128,14 @@ CREATE TABLE IF NOT EXISTS investor_portfolio (
 );
 CREATE INDEX IF NOT EXISTS idx_portfolio_investor_url
     ON investor_portfolio (investor_url);
+
+
+-- Raw HTML of every fetched fund page — lets us re-parse without re-scraping.
+CREATE TABLE IF NOT EXISTS page_cache (
+    url        TEXT PRIMARY KEY,
+    html       TEXT,
+    fetched_at TIMESTAMPTZ DEFAULT now()
+);
 """
 
 

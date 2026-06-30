@@ -139,6 +139,18 @@ class PostgresDB:
         log.info("upserted %d investor stubs", len(prepared))
         return len(prepared)
 
+    def save_page_html(self, url: str, html: str) -> None:
+        """Persist a fetched page's raw HTML so it can be re-parsed without re-scraping."""
+        if not url or not html:
+            return
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO page_cache (url, html, fetched_at) VALUES (%s, %s, now())
+                       ON CONFLICT (url) DO UPDATE SET html = EXCLUDED.html, fetched_at = now()""",
+                    (url, html),
+                )
+
     def mark_detail_fetched(self, urls: list[str]) -> int:
         """Flag investors whose detail HTML has been cached to disk."""
         if not urls:
