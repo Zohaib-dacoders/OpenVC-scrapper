@@ -136,6 +136,35 @@ CREATE TABLE IF NOT EXISTS page_cache (
     html       TEXT,
     fetched_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Customer-facing view: each investor + its team & portfolio (nested JSON),
+-- with website-style column titles. One row per fund.
+CREATE OR REPLACE VIEW investor_overview AS
+SELECT
+  i.url AS "URL", i.company AS "Company", i.investor_type AS "Investor Type",
+  i.investor_subtype AS "Investor Subtype", i.city AS "City", i.country AS "Country",
+  i.address AS "Address", i.latitude AS "Latitude", i.longitude AS "Longitude",
+  array_to_string(i.branch_offices, ' | ') AS "Branch Offices",
+  i.currency AS "Currency", i.investment_min AS "Investment Min", i.investment_max AS "Investment Max",
+  i.average_check AS "Average Check", i.aum AS "AUM",
+  array_to_string(i.featured_lists, ', ') AS "Featured Lists",
+  i.description AS "Who We Are", i.value_add AS "Value Add", i.investment_thesis AS "Investment Thesis",
+  i.funding_requirements AS "Funding Requirements", i.company_role AS "Company Role",
+  i.company_url AS "Company URL", i.website AS "Website", i.linkedin AS "LinkedIn",
+  i.twitter AS "Twitter", i.reply_rate AS "Reply Rate", i.response_time AS "Response Time",
+  i.lead AS "Lead", i.lead_investor AS "Lead Investor", i.picture AS "Picture URL",
+  array_to_string(i.stages, ', ') AS "Stages", array_to_string(i.sectors, ', ') AS "Sectors",
+  array_to_string(i.countries_of_investment, ', ') AS "Countries Invested",
+  COALESCE(t.cnt, 0) AS "Team Count", t.team AS "Team",
+  COALESCE(p.cnt, 0) AS "Portfolio Count", p.portfolio AS "Portfolio"
+FROM investors i
+LEFT JOIN (SELECT investor_url, count(*) cnt,
+  json_agg(json_build_object('Name', name, 'Role', role, 'Personal Thesis', description,
+    'LinkedIn', linkedin_url, 'Profile', profile_slug, 'Picture', picture) ORDER BY id) team
+  FROM investor_team GROUP BY investor_url) t ON t.investor_url = i.url
+LEFT JOIN (SELECT investor_url, count(*) cnt,
+  json_agg(json_build_object('Company', company_name, 'Website', company_url) ORDER BY id) portfolio
+  FROM investor_portfolio GROUP BY investor_url) p ON p.investor_url = i.url;
 """
 
 

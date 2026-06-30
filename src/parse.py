@@ -534,8 +534,12 @@ def _split_city_country(addr: str) -> tuple[str, str]:
     if _norm_country(parts[-1]):
         country = _norm_country(parts[-1])
         parts = parts[:-1]
-    if not country and any(_is_us_state(p) for p in parts):
-        country = "United States"          # infer US from a state / state-abbr segment
+    # "STATE ZIP" combined in one segment, e.g. "CA 90210" → state + US.
+    def _is_state_zip(s):
+        m = re.match(r"^([A-Za-z][A-Za-z .]*?)\s+\d{4,6}(-\d{4})?$", s.strip())
+        return bool(m) and _is_us_state(m.group(1))
+    if not country and (any(_is_us_state(p) for p in parts) or any(_is_state_zip(p) for p in parts)):
+        country = "United States"          # infer US from a state / state-abbr / "STATE ZIP" segment
 
     city = ""
     # 1) "<numeric ZIP> City" — but reject street lines ("1320 N Michigan Ave").
@@ -560,7 +564,7 @@ def _split_city_country(addr: str) -> tuple[str, str]:
     if not city:
         rem = parts[:]
         while rem and (_is_us_state(rem[-1]) or _is_postcode(rem[-1])
-                       or re.fullmatch(r"[A-Z]{2}", rem[-1])):
+                       or re.fullmatch(r"[A-Z]{2}", rem[-1]) or _is_state_zip(rem[-1])):
             rem.pop()
         for cand in reversed(rem):
             q = re.sub(r"^\d{3,}\s+", "", cand).strip()      # drop a leading numeric ZIP
