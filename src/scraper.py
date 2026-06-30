@@ -919,6 +919,12 @@ def run_formate_phase_pg(pg, limit: int = 0) -> None:
             parsed   = parse_detail_page(html, slug)
             team_members = parse_detail_team(html, slug)
 
+            # Skip 404 / removed funds — don't store a "Page not found" row.
+            if parsed.get("NotFound"):
+                inv_updates.append({"url": url, "generated": True, "scrape_date": now})
+                done += 1
+                continue
+
             # Map to PostgreSQL column names (snake_case, proper types)
             p = parsed
             inv_updates.append({
@@ -942,6 +948,8 @@ def run_formate_phase_pg(pg, limit: int = 0) -> None:
                 "city":           p.get("HQCity"),
                 "country":        p.get("HQCountry"),
                 "branch_offices": p.get("BranchOffices"),
+                "latitude":       p.get("Latitude"),
+                "longitude":      p.get("Longitude"),
                 "linkedin":       p.get("LinkedInUrl"),
                 "investor_subtype": p.get("InvestorSubtype"),
                 "company":        p.get("Company"),

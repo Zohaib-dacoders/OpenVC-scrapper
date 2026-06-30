@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS investors (
 
     -- Location (extra)
     branch_offices TEXT[],   -- non-HQ offices ("Munich, Germany", "Switzerland"…)
+    latitude       NUMERIC,  -- exact HQ coords from the page map
+    longitude      NUMERIC,
 
     -- Stats
     connections    INTEGER,
@@ -83,6 +85,8 @@ END $$;
 ALTER TABLE investors ADD COLUMN IF NOT EXISTS funding_requirements TEXT;
 ALTER TABLE investors ADD COLUMN IF NOT EXISTS branch_offices TEXT[];
 ALTER TABLE investors ADD COLUMN IF NOT EXISTS lead TEXT;
+ALTER TABLE investors ADD COLUMN IF NOT EXISTS latitude NUMERIC;
+ALTER TABLE investors ADD COLUMN IF NOT EXISTS longitude NUMERIC;
 -- gap #1: keep the raw full HQ address string, not just the parsed city/country.
 ALTER TABLE investors ADD COLUMN IF NOT EXISTS address TEXT;
 

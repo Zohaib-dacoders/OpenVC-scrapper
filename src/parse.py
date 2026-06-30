@@ -143,8 +143,18 @@ def parse_detail_page(html: str, slug: str) -> dict:
 
     # Fund name (client's "Company" field) — the page <h1> is just the fund name.
     h1 = tree.css_first("h1")
-    if h1 and h1.text(strip=True):
-        result["Company"] = h1.text(strip=True)
+    name = h1.text(strip=True) if h1 else ""
+    # 404 / removed fund — OpenVC serves a "Page not found" page; do NOT store as a fund.
+    if name.lower() in ("page not found", "404", "not found") or not name:
+        result["NotFound"] = True
+        return result
+    result["Company"] = name
+
+    # Geocode (exact HQ lat/lng) from the inline map script: geocode = [lat, lng];
+    gm = re.search(r"geocode\s*=\s*\[\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*\]", html)
+    if gm:
+        result["Latitude"] = float(gm.group(1))
+        result["Longitude"] = float(gm.group(2))
 
     # AirtableId + LogoUrl from profile logo img
     logo = tree.css_first(".logo img, .investor-logo img")
@@ -438,6 +448,8 @@ _COUNTRY_ALIASES = {
     "u.k.": "United Kingdom", "united kingdom": "United Kingdom", "england": "United Kingdom",
     "scotland": "United Kingdom", "great britain": "United Kingdom",
     "deutschland": "Germany", "uae": "United Arab Emirates",
+    "russian federation": "Russia", "russia": "Russia", "republic of ireland": "Ireland",
+    "the netherlands": "Netherlands", "uk": "United Kingdom",
 }
 # Full country names we accept verbatim (lowercased) — guards against treating a
 # trailing state/region as a country.
@@ -481,14 +493,39 @@ def _is_postcode(seg: str) -> bool:
     return bool(re.fullmatch(r"[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}", s))
 
 
+# Street-type words — a segment containing one of these is a street/building line,
+# NOT a city (so we never store "Madison Ave" / "Royal Bank Plaza" as the city).
+_STREET_RE = re.compile(
+    r"\b(ave|avenue|av|avenida|st|street|str|strasse|straße|rd|road|blvd|boulevard|"
+    r"dr|drive|ln|lane|way|pl|place|ct|court|sq|square|hwy|highway|pkwy|parkway|"
+    r"plaza|tower|towers|building|bldg|suite|ste|floor|rua|calle|via|rue|piso)\b\.?",
+    re.I)
+
+
+def _is_street(s: str) -> bool:
+    return bool(_STREET_RE.search(s))
+
+_US_STATE_ABBR = {
+    "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id", "il",
+    "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms", "mo", "mt",
+    "ne", "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri",
+    "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy", "dc",
+}
+
+
+def _is_us_state(s: str) -> bool:
+    return s.strip().lower() in _US_STATES or s.strip().lower() in _US_STATE_ABBR
+
+
 def _split_city_country(addr: str) -> tuple[str, str]:
     """Best-effort (city, full-country) from a free-form OpenVC address string.
 
-    Handles the real shapes seen on OpenVC:
-      "Magdalene-Schoch-Str. 5, 97074 Würzburg, Bayern, DE"  -> Würzburg / Germany
-      "West Hollywood, California, United States"            -> West Hollywood / United States
-      "...West Palm Beach, Florida, Florida, US"             -> West Palm Beach / United States
-      "USA"                                                  -> "" / United States
+    OpenVC's common shape is:  street, <ZIP> City, State, State, Country.
+      "1320 N Michigan Ave, 48642 Saginaw, Michigan, Michigan, US" -> Saginaw / United States
+      "667 Madison Ave, 10065 New York, NY, New York, US"          -> New York / United States
+      "Royal Bank Plaza, M5J 2W7 Toronto, Ontario, Ontario, CA"    -> Toronto / Canada
+      "Nashville, TN"                                              -> Nashville / United States
+      "Moscow, Moscow City, Russian Federation"                    -> Moscow / Russia
     """
     parts = [p.strip() for p in addr.split(",") if p.strip()]
     if not parts:
@@ -497,41 +534,53 @@ def _split_city_country(addr: str) -> tuple[str, str]:
     if _norm_country(parts[-1]):
         country = _norm_country(parts[-1])
         parts = parts[:-1]
+    if not country and any(_is_us_state(p) for p in parts):
+        country = "United States"          # infer US from a state / state-abbr segment
+
     city = ""
-    # Strong signal: a "<ZIP> CityName" segment anywhere → city is the words part.
+    # 1) "<numeric ZIP> City" — but reject street lines ("1320 N Michigan Ave").
     for p in parts:
-        m = re.match(r"^\d{3,}\s+([A-Za-zÀ-ÿ][\w .'\-]+)$", p)
-        if m and m.group(1).strip().lower() not in _US_STATES:
-            city = m.group(1).strip()
-            break
+        m = re.match(r"^\d{3,}\s+(.+)$", p)
+        if m:
+            c = m.group(1).strip()
+            if not _is_us_state(c) and not _STREET_RE.search(c):
+                city = c
+                break
+    # 2) "<alphanumeric postcode> City" (UK "TW20 0DF London" / Canada "M5J 2W7 Toronto").
+    if not city:
+        for p in parts:
+            m = re.match(r"^[A-Za-z]{1,2}\d[A-Za-z\d]?\s*\d[A-Za-z\d]{2}\s+(.+)$", p)
+            if m and not _STREET_RE.search(m.group(1)):
+                city = m.group(1).strip()
+                if not country:
+                    country = "United Kingdom"
+                break
+    # 3) fallback: scan from the RIGHT (OpenVC order is street, city, state, country),
+    #    after stripping trailing state / 2-letter province codes / postcodes.
     if not city:
         rem = parts[:]
-        # Drop trailing US states and bare postcodes (Florida, Florida, TW20 0DF…).
-        while rem and (rem[-1].lower() in _US_STATES or _is_postcode(rem[-1])):
+        while rem and (_is_us_state(rem[-1]) or _is_postcode(rem[-1])
+                       or re.fullmatch(r"[A-Z]{2}", rem[-1])):
             rem.pop()
-        if rem:
-            cand = rem[-1]
-            cand = re.sub(r"^\d{3,}\s+", "", cand)          # "12345 City" → "City"
-            cand = re.sub(r"\s+\d{3,}[\w ]*$", "", cand)     # "City 12345" → "City"
-            # If the last segment is a long street line, step back one.
-            if re.match(r"^\d+\s", cand) and len(rem) > 1:
-                cand = rem[-2]
-            city = cand.strip()
-    city = re.sub(r"\s+[A-Z]{2}$", "", city).strip()         # drop trailing "TO"/state code
+        for cand in reversed(rem):
+            q = re.sub(r"^\d{3,}\s+", "", cand).strip()      # drop a leading numeric ZIP
+            q = re.sub(r"\s+[A-Z]{2}$", "", q).strip()       # drop trailing state code
+            if not q or re.fullmatch(r"\d+", q) or _is_street(q):
+                continue
+            city = q
+            break
 
-    # UK-postcode rescue for comma-less addresses
-    # ("IW Capital Limited 42 Bruton Place London W1J 6PA" → London / United Kingdom).
-    ukpc = re.search(r"\b([A-Z][a-zA-Z.'\-]+)\s+[A-Z]{1,2}\d[A-Z\d]?\s+\d[A-Z]{2}\b", addr)
-    if ukpc:
-        if not country:
-            country = "United Kingdom"
-        if (not city) or len(city) > 30 or re.search(r"\d", city) \
-           or any(w in city.lower() for w in ("limited", "ltd", "llp", "inc", "llc")):
-            city = ukpc.group(1)
-
-    # Final junk guard: a "city" that's really a company/street line, not a city.
-    if len(city) > 35 or re.search(r"\d", city):
+    city = re.sub(r"\s+[A-Z]{2}$", "", city).strip()        # drop trailing state/prov code
+    if len(city) > 35 or re.search(r"\d", city):            # junk guard (street/company line)
         city = ""
+
+    # Comma-less UK address rescue: "...Bruton Place London W1J 6PA" → London / UK.
+    if not city:
+        ukpc = re.search(r"\b([A-Z][a-zA-Z.'\-]+)\s+[A-Z]{1,2}\d[A-Za-z\d]?\s+\d[A-Za-z\d]{2}\b", addr)
+        if ukpc:
+            city = ukpc.group(1)
+            if not country:
+                country = "United Kingdom"
     return city, country
 
 
